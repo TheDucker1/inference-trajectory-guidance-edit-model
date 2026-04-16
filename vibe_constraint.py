@@ -15,6 +15,7 @@ XLA_AVAILABLE = False
 
 from diffusers.pipelines.sana.pipeline_output import SanaPipelineOutput
 from diffusers.pipelines.sana.pipeline_sana import SanaPipeline, retrieve_timesteps
+from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 
 class VIBESanaEditingPipeLineConstraint(VIBESanaEditingPipeline):
 
@@ -55,6 +56,9 @@ class VIBESanaEditingPipeLineConstraint(VIBESanaEditingPipeline):
             torch.Tensor: The final latents after the denoising loop.
         """
         transformer_dtype = self.transformer.dtype
+        
+        initial_image_latents = input_image_latents.chunk(3 if self.do_image_guidance else 2)[0]
+
         with self.progress_bar(total=num_inference_steps) as progress_bar:
             for i, t in enumerate(timesteps):
                 if self.interrupt:
@@ -84,7 +88,6 @@ class VIBESanaEditingPipeLineConstraint(VIBESanaEditingPipeline):
                     attention_kwargs=self.attention_kwargs,
                     t2i_samples=[is_t2i] * scaled_latent_model_input.shape[0],
                 )[0]
-                noise_pred = noise_pred.float()
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
@@ -103,31 +106,35 @@ class VIBESanaEditingPipeLineConstraint(VIBESanaEditingPipeline):
                 if self.transformer.config.out_channels // 2 == latent_channels:
                     noise_pred = noise_pred.chunk(2, dim=1)[0]
 
+
                 if i < constraint_step:
-                    B = latents.shape[0]
-                    if input_image_latents is None:
-                        cond_latents = latents
-                        constraint_input = torch.cat([latents, latents], dim=1)
-                    else:
-                        cond_latents = input_image_latents[:B]
-                        constraint_input = torch.cat([latents, cond_latents], dim=1)
-                    
-                    constraint_prompt = empty_prompt_embeds[:B]
 
                     constraint_noise_pred = self.transformer(
-                        hidden_states=constraint_input.to(dtype=transformer_dtype),
-                        encoder_hidden_states=constraint_prompt,
-                        timestep=timestep[:B],
+                        hidden_states=scaled_latent_model_input.to(dtype=transformer_dtype),
+                        encoder_hidden_states=empty_prompt_embeds,
+                        timestep=timestep,
                         return_dict=False,
                         attention_kwargs=self.attention_kwargs,
-                        t2i_samples=[is_t2i] * B
+                        t2i_samples=[is_t2i] * scaled_latent_model_input.shape[0]
                     )[0]
+
+                    if self.do_classifier_free_guidance:
+                        if self.do_image_guidance:
+                            constraint_noise_pred_text, constraint_noise_pred_image, constraint_noise_pred_uncond = constraint_noise_pred.chunk(3)
+                            constraint_noise_pred = (
+                                constraint_noise_pred_uncond
+                                + guidance_scale * (constraint_noise_pred_text - constraint_noise_pred_image)
+                                + image_guidance_scale * (constraint_noise_pred_image - constraint_noise_pred_uncond)
+                            )
+                        else:
+                            constraint_noise_pred_text, constraint_noise_pred_uncond = constraint_noise_pred.chunk(2)
+                            constraint_noise_pred = constraint_noise_pred_uncond + guidance_scale * (constraint_noise_pred_text - constraint_noise_pred_uncond)
 
                     if self.transformer.config.out_channels // 2 == latent_channels:
                         constraint_noise_pred = constraint_noise_pred.chunk(2, dim=1)[0]
 
                     delta_t = t.item() / 1000
-                    correction_target_latents = cond_latents - (delta_t * constraint_noise_pred)
+                    correction_target_latents = initial_image_latents + (delta_t * constraint_noise_pred[:, : latents.size(1), :])
                     latents = (1.0 - constraint_alpha) * latents + constraint_alpha * correction_target_latents
 
                 # compute previous image: x_t -> x_t-1
@@ -258,7 +265,7 @@ class VIBESanaEditingPipeLineConstraint(VIBESanaEditingPipeline):
 
         empty_prompt_embeds, _ = self.encode_prompt(
             batch_size=batch_size,
-            conditioning_image=None,
+            conditioning_image=conditioning_image,
             prompt="",
             prompt_embeds=None,
             negative_prompt_embeds=None,
