@@ -265,7 +265,7 @@ class VIBESanaEditingPipeLineConstraint(VIBESanaEditingPipeline):
 
         empty_prompt_embeds, _ = self.encode_prompt(
             batch_size=batch_size,
-            conditioning_image=conditioning_image,
+            conditioning_image=None,
             prompt="",
             prompt_embeds=None,
             negative_prompt_embeds=None,
@@ -433,6 +433,7 @@ class VibeImageEditorConstraint:
             checkpoint_path,
             **kwargs
         )
+        #self.pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(self.pipe.scheduler.config)
         #self.pipe.to(self.device)
         self.pipe.enable_model_cpu_offload()
         self.cfg_distilled = getattr(self.pipe.transformer.config, "cfg_distilled", False)
