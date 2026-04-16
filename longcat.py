@@ -366,7 +366,7 @@ class LongCatImageEditPipelineConstraint(LongCatImageEditPipeline):
                         noise_pred_empty = noise_pred_empty[:, :image_seq_len]
                         delta_t = t.item() / 1000
 
-                        correction_target_latents = image_latents + (delta_t * noise_pred_empty)
+                        correction_target_latents = image_latents - (delta_t * noise_pred_empty)
                         latents = (1.0 - constraint_alpha) * latents + constraint_alpha * correction_target_latents
 
                 # compute the previous noisy sample x_t -> x_t-1

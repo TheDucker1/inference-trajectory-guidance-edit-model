@@ -335,7 +335,7 @@ class Flux2KleinPipelineConstraint(Flux2KleinPipeline):
                             return_dict=False,
                         )[0]
                         delta_t = t.item() / 1000
-                        correction_target_latents = image_latents + (delta_t * constraint_noise_pred[:, : latents.size(1), :])
+                        correction_target_latents = image_latents - (delta_t * constraint_noise_pred[:, : latents.size(1), :])
                         latents = (1.0 - constraint_alpha) * latents + constraint_alpha * correction_target_latents
 
                 # compute the previous noisy sample x_t -> x_t-1
