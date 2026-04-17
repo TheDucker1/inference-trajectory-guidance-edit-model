@@ -133,9 +133,17 @@ class VIBESanaEditingPipeLineConstraint(VIBESanaEditingPipeline):
                     if self.transformer.config.out_channels // 2 == latent_channels:
                         constraint_noise_pred = constraint_noise_pred.chunk(2, dim=1)[0]
 
-                    delta_t = t.item() / 1000
-                    correction_target_latents = initial_image_latents + (delta_t * constraint_noise_pred[:, : latents.size(1), :])
-                    latents = (1.0 - constraint_alpha) * latents + constraint_alpha * correction_target_latents
+                    delta_t = t.item()
+                    if i < len(timesteps):
+                        delta_t -= timesteps[i+1].item()
+                    delta_t /= 1000
+                    z_star = initial_image_latents + t.item()/1000 * constraint_noise_pred[:, : latents.size(1), :]
+
+                    noise_pred = noise_pred - constraint_alpha / delta_t * (z_star - latents)
+                    
+
+                    #correction_target_latents = initial_image_latents + (delta_t * constraint_noise_pred[:, : latents.size(1), :])
+                    #latents = (1.0 - constraint_alpha) * latents + constraint_alpha * correction_target_latents
 
                 # compute previous image: x_t -> x_t-1
                 latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
